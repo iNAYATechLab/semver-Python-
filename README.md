@@ -1,3 +1,3 @@
-# Poetry SemVer
+# SemVer Python
 
-A semantic versioning library for Python. Initially part of the [Poetry](https://github.com/python-poetry/poetry) codebase.
+A semantic versioning library for Python
