@@ -6,7 +6,11 @@ SemVer 2.0.0 compliance (pre-releases, build metadata, validation) and the
 API robustness issues reported in the audit.
 """
 
+import os
+
 import pytest
+
+import semver
 
 from semver import EmptyConstraint
 from semver import Version
@@ -39,15 +43,40 @@ def test_prerelease_identifiers_are_kept(text, prerelease):
 
 
 @pytest.mark.parametrize(
-    "text,build",
-    [("1.0.0-1", [1]), ("1.0.0-post", []), ("1.0.0-post1", [1])],
+    "text,post,build",
+    [
+        ("1.0.0-1", 1, []),
+        ("1.0.0-post", None, []),
+        ("1.0.0-post1", 1, []),
+        ("1.0.0+post1", 1, []),
+        ("1.0.0-post1+build", 1, ["build"]),
+    ],
 )
-def test_post_release_convention_is_preserved(text, build):
+def test_post_release_convention_is_preserved(text, post, build):
     """A lone integer or a "post" marker after the release is a post-release."""
     version = Version.parse(text)
 
+    assert version.post == post
     assert version.build == build
     assert not version.is_prerelease()
+
+
+def test_post_releases_sort_above_the_release():
+    """A post-release is greater than its release but lower than the next one."""
+    release = Version.parse("1.0.0")
+    post = Version.parse("1.0.0-post1")
+    next_patch = Version.parse("1.0.1")
+
+    assert post > release
+    assert post < next_patch
+    assert post != release
+    assert max([release, post]) == post
+    assert sorted([next_patch, release, post]) == [release, post, next_patch]
+
+    assert parse_constraint(">1.0.0").allows(post)
+    assert parse_constraint("<1.0.1").allows(post)
+    assert not parse_constraint("<1.0.0").allows(post)
+    assert Version.parse("1.0.0-post2") > Version.parse("1.0.0-post1")
 
 
 def test_prerelease_is_lower_than_the_release():
@@ -106,15 +135,18 @@ def test_build_metadata_constraints():
 @pytest.mark.parametrize(
     "text,build",
     [
-        ("1.0.0+post1", [1]),
         ("1.0.0+postsponsor", ["sponsor"]),
         ("1.0.0+postoffice", ["office"]),
         ("1.0.0+toast", ["toast"]),
+        ("1.0.0+post", []),
     ],
 )
 def test_post_build_metadata_is_only_stripped_once(text, build):
     """str.lstrip("post") used to eat every leading p/o/s/t character."""
-    assert Version.parse(text).build == build
+    version = Version.parse(text)
+
+    assert version.build == build
+    assert version.post is None
 
 
 @pytest.mark.parametrize(
@@ -213,6 +245,30 @@ def test_parse_constraint_rejects_non_strings(constraints):
 )
 def test_text_round_trip(text):
     assert Version.parse(str(Version.parse(text))) == Version.parse(text)
+
+
+def test_huge_numbers_raise_parse_version_error():
+    """Python refuses int() on >4300 digits; that must not leak a bare ValueError."""
+    for text in ["1" * 5000, "1.0." + "0" * 5000, "1.0.0-" + "1" * 5000]:
+        with pytest.raises(ParseVersionError):
+            Version.parse(text)
+
+        with pytest.raises(ValueError):
+            parse_constraint(">=" + text)
+
+
+def test_version_and_version_range_are_never_equal():
+    """Version subclasses VersionRange, so their hashes can never match."""
+    version = Version.parse("1.2.3")
+    point_range = VersionRange(version, version, True, True)
+
+    assert version != point_range
+    assert point_range != version
+    assert len({version, point_range}) == 2
+
+
+def test_type_information_is_shipped():
+    assert os.path.exists(os.path.join(os.path.dirname(semver.__file__), "py.typed"))
 
 
 def test_constraints_keep_allowing_multi_part_prereleases():

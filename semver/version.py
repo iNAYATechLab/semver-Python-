@@ -18,6 +18,18 @@ from .version_union import VersionUnion
 POST_RELEASE = re.compile(r"(?i)^(?:post)?[-_.]?(?P<digits>\d+)?$")
 
 
+def _to_int(text):  # type: (str) -> int
+    """int() that reports failures as ParseVersionError.
+
+    Since Python 3.11 int() refuses to convert digit strings longer than 4300
+    characters, which would otherwise leak a bare ValueError out of parse().
+    """
+    try:
+        return int(text)
+    except ValueError as e:
+        raise ParseVersionError("Unable to parse version: {}".format(e))
+
+
 def _is_valid_identifier_list(text):  # type: (str) -> bool
     """Check a dot separated list of pre-release/build identifiers.
 
@@ -46,6 +58,7 @@ class Version(VersionRange):
         build=None,  # type: Optional[str]
         text=None,  # type: Optional[str]
         precision=None,  # type: Optional[int]
+        post=None,  # type: Optional[int]
     ):  # type: (...) -> None
         self._major = int(major)
         self._precision = None
@@ -113,6 +126,11 @@ class Version(VersionRange):
 
             self._build = self._split_parts(build)
 
+        # A post-release counter (1.0.0-1, 1.0.0-post1, 1.0.0+post1). It is
+        # tracked separately from build metadata because it must sort *above*
+        # the plain release, while build metadata is ignored (SemVer 2.0.0 s10).
+        self._post = post
+
     @property
     def major(self):  # type: () -> int
         return self._major
@@ -136,6 +154,11 @@ class Version(VersionRange):
     @property
     def build(self):  # type: () -> List[str]
         return self._build
+
+    @property
+    def post(self):  # type: () -> Optional[int]
+        """The post-release counter, or None for a plain release."""
+        return self._post
 
     @property
     def text(self):
@@ -229,10 +252,10 @@ class Version(VersionRange):
 
         text = text.rstrip(".")
 
-        major = int(match.group("major"))
-        minor = int(match.group("minor")) if match.group("minor") else None
-        patch = int(match.group("patch")) if match.group("patch") else None
-        rest = int(match.group("rest")) if match.group("rest") else None
+        major = _to_int(match.group("major"))
+        minor = _to_int(match.group("minor")) if match.group("minor") else None
+        patch = _to_int(match.group("patch")) if match.group("patch") else None
+        rest = _to_int(match.group("rest")) if match.group("rest") else None
 
         pre = match.group("pre")
         build = match.group("build")
@@ -247,15 +270,23 @@ class Version(VersionRange):
             if identifier is not None and not _is_valid_identifier_list(identifier):
                 raise ParseVersionError('Unable to parse "{}".'.format(text))
 
-        if pre is not None and build is None:
-            post = POST_RELEASE.match(pre)
-            if post and (pre.lower().startswith("post") or pre.isdigit()):
-                # Post-release: it is stored as build metadata so that it keeps
-                # sorting above the plain release, as it did historically.
-                build = post.group("digits")
+        # Post-releases: "1.0.0-1", "1.0.0-post1", "1.0.0+post1".
+        post = None
+        if pre is not None:
+            marker = POST_RELEASE.match(pre)
+            if marker and (pre.lower().startswith("post") or pre.isdigit()):
+                digits = marker.group("digits")
+                post = _to_int(digits) if digits is not None else None
                 pre = None
 
-        return Version(major, minor, patch, rest, pre, build, text)
+        if build is not None and build.lower().startswith("post"):
+            digits = build[4:]
+            if not digits or digits.isdigit():
+                if digits:
+                    post = int(digits)
+                build = None
+
+        return Version(major, minor, patch, rest, pre, build, text, post=post)
 
     def is_any(self):
         return False
@@ -442,6 +473,16 @@ class Version(VersionRange):
         if comparison != 0:
             return comparison
 
+        # A post-release sorts above the plain release it follows.
+        if self.post != other.post:
+            if self.post is None:
+                return -1
+
+            if other.post is None:
+                return 1
+
+            return self._cmp_parts(self.post, other.post)
+
         # Build metadata MUST be ignored when determining version precedence
         # (SemVer 2.0.0 s10): "1.0.0+a" and "1.0.0+b" have the same precedence.
         return 0
@@ -500,6 +541,7 @@ class Version(VersionRange):
             and self._patch == other.patch
             and self._rest == other.rest
             and self._prerelease == other.prerelease
+            and self._post == other.post
         )
 
     def __ne__(self, other):
@@ -523,5 +565,6 @@ class Version(VersionRange):
                 self.patch,
                 self.rest,
                 ".".join(str(p) for p in self.prerelease),
+                self.post,
             )
         )

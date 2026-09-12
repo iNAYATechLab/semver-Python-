@@ -18,10 +18,10 @@ from semver.exceptions import ParseVersionError
         ("1.0.0-b1", Version(1, 0, 0, pre="beta1")),
         ("1.0.0-beta.1", Version(1, 0, 0, pre="beta1")),
         ("1.0.0+1", Version(1, 0, 0, build="1")),
-        ("1.0.0-1", Version(1, 0, 0, build="1")),
+        ("1.0.0-1", Version(1, 0, 0, post=1)),
         ("1.0.0.0", Version(1, 0, 0)),
         ("1.0.0-post", Version(1, 0, 0)),
-        ("1.0.0-post1", Version(1, 0, 0, build="1")),
+        ("1.0.0-post1", Version(1, 0, 0, post=1)),
         ("0.6c", Version(0, 6, 0, pre="rc0")),
         ("0.6pre", Version(0, 6, 0, pre="rc0")),
     ],
@@ -33,7 +33,7 @@ def test_parse_valid(input, version):
     assert parsed.text == input
 
 
-@pytest.mark.parametrize("input", [(None, "example")])
+@pytest.mark.parametrize("input", [None, "example", "", "1.0.0-", b"1.0.0"])
 def test_parse_invalid(input):
     with pytest.raises(ParseVersionError):
         Version.parse(input)
