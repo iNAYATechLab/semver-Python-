@@ -1,8 +1,8 @@
 import re
 
-from typing import List
-from typing import Optional
-from typing import Union
+from typing import List  # noqa: F401  (used in type comments)
+from typing import Optional  # noqa: F401  (used in type comments)
+from typing import Union  # noqa: F401  (used in type comments)
 
 from .empty_constraint import EmptyConstraint
 from .exceptions import ParseVersionError
@@ -10,6 +10,25 @@ from .patterns import COMPLETE_VERSION
 from .version_constraint import VersionConstraint
 from .version_range import VersionRange
 from .version_union import VersionUnion
+
+# A trailing "post" marker or a lone integer after the release segment denotes
+# a post-release ("1.0.0-post1", "1.0.0-1"), which is greater than the release
+# itself. This mirrors the PyPI/PEP 440 convention poetry relies on. Anything
+# else found there is a pre-release (SemVer 2.0.0 s9).
+POST_RELEASE = re.compile(r"(?i)^(?:post)?[-_.]?(?P<digits>\d+)?$")
+
+
+def _is_valid_identifier_list(text):  # type: (str) -> bool
+    """Check a dot separated list of pre-release/build identifiers.
+
+    None of the identifiers may be empty ("rc..1") and none may end with a
+    hyphen, which is how a dangling separator such as "1.0.0-" shows up.
+    """
+    identifiers = text.split(".")
+
+    return all(
+        identifier and not identifier.endswith("-") for identifier in identifiers
+    )
 
 
 class Version(VersionRange):
@@ -197,8 +216,11 @@ class Version(VersionRange):
 
     @classmethod
     def parse(cls, text):  # type: (str) -> Version
+        # fullmatch (and not match) so that trailing garbage such as
+        # "1.0.0junk", "1.0.0 " or "1.0.0-" is rejected instead of being
+        # silently ignored.
         try:
-            match = COMPLETE_VERSION.match(text)
+            match = COMPLETE_VERSION.fullmatch(text)
         except TypeError:
             match = None
 
@@ -207,16 +229,31 @@ class Version(VersionRange):
 
         text = text.rstrip(".")
 
-        major = int(match.group(1))
-        minor = int(match.group(2)) if match.group(2) else None
-        patch = int(match.group(3)) if match.group(3) else None
-        rest = int(match.group(4)) if match.group(4) else None
+        major = int(match.group("major"))
+        minor = int(match.group("minor")) if match.group("minor") else None
+        patch = int(match.group("patch")) if match.group("patch") else None
+        rest = int(match.group("rest")) if match.group("rest") else None
 
-        pre = match.group(5)
-        build = match.group(6)
+        pre = match.group("pre")
+        build = match.group("build")
 
         if build:
             build = build.lstrip("+")
+
+        # A dangling separator ("1.0.0-", "1.0.0+-") or an empty identifier
+        # ("1.0.0-rc..1") must not be accepted: the regex above only sees a
+        # valid identifier list at this point, so check it explicitly.
+        for identifier in (pre, build):
+            if identifier is not None and not _is_valid_identifier_list(identifier):
+                raise ParseVersionError('Unable to parse "{}".'.format(text))
+
+        if pre is not None and build is None:
+            post = POST_RELEASE.match(pre)
+            if post and (pre.lower().startswith("post") or pre.isdigit()):
+                # Post-release: it is stored as build metadata so that it keeps
+                # sorting above the plain release, as it did historically.
+                build = post.group("digits")
+                pre = None
 
         return Version(major, minor, patch, rest, pre, build, text)
 
@@ -299,7 +336,10 @@ class Version(VersionRange):
 
         m = re.match(r"(?i)^(a|alpha|b|beta|c|pre|rc|dev)[-.]?(\d+)?$", pre)
         if not m:
-            return
+            # Not a known modifier: keep the identifiers untouched instead of
+            # dropping the whole pre-release, which used to turn versions such
+            # as "1.0.0-rc.1.2" or "1.0.0-alpha.beta" into stable releases.
+            return pre
 
         modifier = m.group(1)
         number = m.group(2)
@@ -323,7 +363,10 @@ class Version(VersionRange):
             return
 
         if build.startswith("post"):
-            build = build.lstrip("post")
+            # Strip the "post" prefix only. str.lstrip() would remove every
+            # leading character from the set {p, o, s, t}, turning a build
+            # string like "postsponsor" into "nsor".
+            build = build[4:]
 
         if not build:
             return
@@ -342,16 +385,32 @@ class Version(VersionRange):
         return parts
 
     def __lt__(self, other):
-        return self._cmp(other) < 0
+        comparison = self._cmp(other)
+        if comparison is NotImplemented:
+            return NotImplemented
+
+        return comparison < 0
 
     def __le__(self, other):
-        return self._cmp(other) <= 0
+        comparison = self._cmp(other)
+        if comparison is NotImplemented:
+            return NotImplemented
+
+        return comparison <= 0
 
     def __gt__(self, other):
-        return self._cmp(other) > 0
+        comparison = self._cmp(other)
+        if comparison is NotImplemented:
+            return NotImplemented
+
+        return comparison > 0
 
     def __ge__(self, other):
-        return self._cmp(other) >= 0
+        comparison = self._cmp(other)
+        if comparison is NotImplemented:
+            return NotImplemented
+
+        return comparison >= 0
 
     def _cmp(self, other):
         if not isinstance(other, VersionConstraint):
@@ -383,14 +442,9 @@ class Version(VersionRange):
         if comparison != 0:
             return comparison
 
-        # Builds always come after no build string.
-        if not self.build and other.build:
-            return -1
-
-        if not other.build and self.build:
-            return 1
-
-        return self._cmp_lists(self.build, other.build)
+        # Build metadata MUST be ignored when determining version precedence
+        # (SemVer 2.0.0 s10): "1.0.0+a" and "1.0.0+b" have the same precedence.
+        return 0
 
     def _cmp_parts(self, a, b):
         if a < b:
@@ -437,17 +491,23 @@ class Version(VersionRange):
         if not isinstance(other, Version):
             return NotImplemented
 
+        # Build metadata is not part of a version's identity: "1.0.0+a" and
+        # "1.0.0+b" are the same version as far as precedence is concerned
+        # (SemVer 2.0.0 s10).
         return (
             self._major == other.major
             and self._minor == other.minor
             and self._patch == other.patch
             and self._rest == other.rest
             and self._prerelease == other.prerelease
-            and self._build == other.build
         )
 
     def __ne__(self, other):
-        return not self == other
+        result = self.__eq__(other)
+        if result is NotImplemented:
+            return NotImplemented
+
+        return not result
 
     def __str__(self):
         return self._text
@@ -461,7 +521,7 @@ class Version(VersionRange):
                 self.major,
                 self.minor,
                 self.patch,
+                self.rest,
                 ".".join(str(p) for p in self.prerelease),
-                ".".join(str(p) for p in self.build),
             )
         )

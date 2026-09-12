@@ -26,5 +26,24 @@ class EmptyConstraint(VersionConstraint):
     def difference(self, other):
         return self
 
+    def __eq__(self, other):
+        if not isinstance(other, EmptyConstraint):
+            return NotImplemented
+
+        return True
+
+    def __ne__(self, other):
+        result = self.__eq__(other)
+        if result is NotImplemented:
+            return NotImplemented
+
+        return not result
+
+    def __hash__(self):
+        return hash(EmptyConstraint)
+
     def __str__(self):
         return "<empty>"
+
+    def __repr__(self):
+        return "<EmptyConstraint>"

@@ -11,11 +11,16 @@ from .version_constraint import VersionConstraint
 from .version_range import VersionRange
 from .version_union import VersionUnion
 
-
 __version__ = "0.1.0"
 
 
 def parse_constraint(constraints):  # type: (str) -> VersionConstraint
+    if not isinstance(constraints, str):
+        raise ValueError(
+            "Could not parse version constraint: {!r} "
+            "(expected a string)".format(constraints)
+        )
+
     if constraints == "*":
         return VersionRange()
 
@@ -56,10 +61,10 @@ def parse_single_constraint(constraint):  # type: (str) -> VersionConstraint
     # Tilde range
     m = TILDE_CONSTRAINT.match(constraint)
     if m:
-        version = Version.parse(m.group(1))
+        version = Version.parse(m.group("version"))
 
         high = version.stable.next_minor
-        if len(m.group(1).split(".")) == 1:
+        if len(m.group("version").split(".")) == 1:
             high = version.stable.next_major
 
         return VersionRange(
@@ -70,13 +75,13 @@ def parse_single_constraint(constraint):  # type: (str) -> VersionConstraint
     m = TILDE_PEP440_CONSTRAINT.match(constraint)
     if m:
         precision = 1
-        if m.group(3):
+        if m.group("minor"):
             precision += 1
 
-            if m.group(4):
+            if m.group("patch"):
                 precision += 1
 
-        version = Version.parse(m.group(1))
+        version = Version.parse(m.group("version"))
 
         if precision == 2:
             low = version
@@ -92,7 +97,7 @@ def parse_single_constraint(constraint):  # type: (str) -> VersionConstraint
     # Caret range
     m = CARET_CONSTRAINT.match(constraint)
     if m:
-        version = Version.parse(m.group(1))
+        version = Version.parse(m.group("version"))
 
         return VersionRange(
             version,
@@ -104,9 +109,9 @@ def parse_single_constraint(constraint):  # type: (str) -> VersionConstraint
     # X Range
     m = X_CONSTRAINT.match(constraint)
     if m:
-        op = m.group(1)
-        major = int(m.group(2))
-        minor = m.group(3)
+        op = m.group("op")
+        major = int(m.group("major"))
+        minor = m.group("minor")
 
         if minor is not None:
             version = Version(major, int(minor), 0)
@@ -138,8 +143,8 @@ def parse_single_constraint(constraint):  # type: (str) -> VersionConstraint
     # Basic comparator
     m = BASIC_CONSTRAINT.match(constraint)
     if m:
-        op = m.group(1)
-        version = m.group(2)
+        op = m.group("op")
+        version = m.group("version")
 
         if version == "dev":
             version = "0.0-dev"

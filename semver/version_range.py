@@ -1,10 +1,12 @@
-from typing import List
-
-import semver
+from typing import TYPE_CHECKING
+from typing import List  # noqa: F401  (used in type comments)
 
 from .empty_constraint import EmptyConstraint
 from .version_constraint import VersionConstraint
 from .version_union import VersionUnion
+
+if TYPE_CHECKING:  # pragma: no cover
+    import semver  # noqa: F401  (used in type comments)
 
 
 class VersionRange(VersionConstraint):
@@ -20,6 +22,7 @@ class VersionRange(VersionConstraint):
         if (
             always_include_max_prerelease
             and not include_max
+            and full_max is not None
             and not full_max.is_prerelease()
             and not full_max.build
             and (
@@ -380,18 +383,37 @@ class VersionRange(VersionConstraint):
         )
 
     def __lt__(self, other):
-        return self._cmp(other) < 0
+        comparison = self._cmp(other)
+        if comparison is NotImplemented:
+            return NotImplemented
+
+        return comparison < 0
 
     def __le__(self, other):
-        return self._cmp(other) <= 0
+        comparison = self._cmp(other)
+        if comparison is NotImplemented:
+            return NotImplemented
+
+        return comparison <= 0
 
     def __gt__(self, other):
-        return self._cmp(other) > 0
+        comparison = self._cmp(other)
+        if comparison is NotImplemented:
+            return NotImplemented
+
+        return comparison > 0
 
     def __ge__(self, other):
-        return self._cmp(other) >= 0
+        comparison = self._cmp(other)
+        if comparison is NotImplemented:
+            return NotImplemented
+
+        return comparison >= 0
 
     def _cmp(self, other):  # type: (VersionRange) -> int
+        if not isinstance(other, VersionRange):
+            return NotImplemented
+
         if self.min is None:
             if other.min is None:
                 return self._compare_max(other)
