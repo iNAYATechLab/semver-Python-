@@ -372,8 +372,17 @@ class VersionRange(VersionConstraint):
         )
 
     def __eq__(self, other):
+        from .version import Version
+
         if not isinstance(other, VersionRange):
             return False
+
+        if isinstance(other, Version):
+            # Version subclasses VersionRange, so it passes the check above,
+            # but a point range and a Version hash differently. Claiming they
+            # are equal would break the hash/equality contract, so let Python
+            # fall back to the default identity comparison.
+            return NotImplemented
 
         return (
             self._min == other.min
