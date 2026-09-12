@@ -40,18 +40,18 @@ def test_parse_invalid(input):
 
 
 def test_comparison():
+    # Build metadata is deliberately absent from this list: it does not take
+    # part in precedence (SemVer 2.0.0 s10), so "1.0.0" and "1.0.0+0.3.7" are
+    # the same version. See test_build_metadata_is_ignored_in_precedence().
     versions = [
         "1.0.0-alpha",
         "1.0.0-alpha.1",
+        "1.0.0-alpha.beta",
         "1.0.0-beta.2",
         "1.0.0-beta.11",
         "1.0.0-rc.1",
-        "1.0.0-rc.1+build.1",
         "1.0.0",
-        "1.0.0+0.3.7",
-        "1.3.7+build",
-        "1.3.7+build.2.b8f12d7",
-        "1.3.7+build.11.e0f985a",
+        "1.3.7",
         "2.0.0",
         "2.1.0",
         "2.2.0",
@@ -87,7 +87,8 @@ def test_allows():
     assert not v.allows(Version.parse("1.3.3"))
     assert not v.allows(Version.parse("1.2.4"))
     assert not v.allows(Version.parse("1.2.3-dev"))
-    assert not v.allows(Version.parse("1.2.3+build"))
+    # Build metadata does not change a version's identity (SemVer 2.0.0 s10).
+    assert v.allows(Version.parse("1.2.3+build"))
 
 
 def test_allows_all():
