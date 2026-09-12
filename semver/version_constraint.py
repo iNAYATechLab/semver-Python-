@@ -1,4 +1,7 @@
-import semver
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover
+    import semver  # noqa: F401  (used in type comments)
 
 
 class VersionConstraint:

@@ -1,9 +1,11 @@
-from typing import List
-
-import semver
+from typing import TYPE_CHECKING
+from typing import List  # noqa: F401  (used in type comments)
 
 from .empty_constraint import EmptyConstraint
 from .version_constraint import VersionConstraint
+
+if TYPE_CHECKING:  # pragma: no cover
+    import semver  # noqa: F401  (used in type comments)
 
 
 class VersionUnion(VersionConstraint):
@@ -243,6 +245,16 @@ class VersionUnion(VersionConstraint):
             return False
 
         return self._ranges == other.ranges
+
+    def __ne__(self, other):
+        result = self.__eq__(other)
+        if result is NotImplemented:
+            return NotImplemented
+
+        return not result
+
+    def __hash__(self):
+        return hash(tuple(self._ranges))
 
     def __str__(self):
         from .version_range import VersionRange
